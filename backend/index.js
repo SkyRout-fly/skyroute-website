@@ -15,7 +15,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-/* ✅ Root route */
+/* ✅ Root */
 app.get("/", (req, res) => {
   res.send("SkyRoute API running");
 });
@@ -26,27 +26,19 @@ app.get("/db-test", async (req, res) => {
     const result = await pool.query("SELECT NOW()");
     res.json({ success: true, time: result.rows[0] });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
 /* ✅ REGISTER PAGE (browser) */
 app.get("/register", (req, res) => {
   res.send(`
-    <!DOCTYPE html>
     <html>
-      <head>
-        <title>SkyRoute - Register</title>
-      </head>
       <body>
         <h2>Register</h2>
         <form method="POST" action="/register">
-          <label>Email:</label><br/>
-          <input type="email" name="email" required/><br/><br/>
-
-          <label>Password:</label><br/>
-          <input type="password" name="password" required/><br/><br/>
-
+          <input name="email" type="email" placeholder="Email" required /><br/><br/>
+          <input name="password" type="password" placeholder="Password" required /><br/><br/>
           <button type="submit">Register</button>
         </form>
       </body>
@@ -57,17 +49,14 @@ app.get("/register", (req, res) => {
 /* ✅ REGISTER API */
 app.post("/register", async (req, res) => {
   const { email, password } = req.body;
-  if (!email || !password) {
-    return res.status(400).send("Email and password required");
-  }
 
+  const hash = await bcrypt.hash(password, 10);
   try {
-    const hash = await bcrypt.hash(password, 10);
     await pool.query(
       "INSERT INTO users (email, password_hash) VALUES ($1, $2)",
       [email, hash]
     );
-    res.send("✅ Registration successful. You can now log in.");
+    res.send("✅ Registration successful");
   } catch {
     res.status(400).send("❌ User already exists");
   }
@@ -76,20 +65,12 @@ app.post("/register", async (req, res) => {
 /* ✅ LOGIN PAGE (browser) */
 app.get("/login", (req, res) => {
   res.send(`
-    <!DOCTYPE html>
     <html>
-      <head>
-        <title>SkyRoute - Login</title>
-      </head>
       <body>
         <h2>Login</h2>
         <form method="POST" action="/login">
-          <label>Email:</label><br/>
-          <input type="email" name="email" required/><br/><br/>
-
-          <label>Password:</label><br/>
-          <input type="password" name="password" required/><br/><br/>
-
+          <input name="email" type="email" placeholder="Email" required /><br/><br/>
+          <input name="password" type="password" placeholder="Password" required /><br/><br/>
           <button type="submit">Login</button>
         </form>
       </body>
@@ -110,24 +91,24 @@ app.post("/login", async (req, res) => {
     return res.status(400).send("Invalid credentials");
   }
 
-  const user = result.rows[0];
-  const valid = await bcrypt.compare(password, user.password_hash);
+  const valid = await bcrypt.compare(password, result.rows[0].password_hash);
 
   if (!valid) {
     return res.status(400).send("Invalid credentials");
   }
 
   const token = jwt.sign(
-    { userId: user.id, email: user.email },
+    { userId: result.rows[0].id },
     process.env.JWT_SECRET,
     { expiresIn: "1h" }
   );
 
-  res.json({ success: true, token });
+  res.json({ token });
 });
 
-/* ✅ START SERVER (MUST BE LAST) */
+/* ✅ SERVER MUST BE LAST */
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log("Backend running on port", PORT);
 });
+``
