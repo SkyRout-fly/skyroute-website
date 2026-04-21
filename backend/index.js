@@ -9,18 +9,18 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-/* ✅ PostgreSQL connection */
+/* ✅ PostgreSQL (Supabase) connection */
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
 
-/* ✅ Root */
+/* ✅ Root route */
 app.get("/", (req, res) => {
   res.send("SkyRoute API running");
 });
 
-/* ✅ DB test */
+/* ✅ Database test */
 app.get("/db-test", async (req, res) => {
   try {
     const result = await pool.query("SELECT NOW()");
@@ -50,8 +50,12 @@ app.get("/register", (req, res) => {
 app.post("/register", async (req, res) => {
   const { email, password } = req.body;
 
-  const hash = await bcrypt.hash(password, 10);
+  if (!email || !password) {
+    return res.status(400).send("Email and password required");
+  }
+
   try {
+    const hash = await bcrypt.hash(password, 10);
     await pool.query(
       "INSERT INTO users (email, password_hash) VALUES ($1, $2)",
       [email, hash]
@@ -92,7 +96,6 @@ app.post("/login", async (req, res) => {
   }
 
   const valid = await bcrypt.compare(password, result.rows[0].password_hash);
-
   if (!valid) {
     return res.status(400).send("Invalid credentials");
   }
@@ -103,10 +106,10 @@ app.post("/login", async (req, res) => {
     { expiresIn: "1h" }
   );
 
-  res.json({ token });
+  res.json({ success: true, token });
 });
 
-/* ✅ SERVER MUST BE LAST */
+/* ✅ SERVER MUST ALWAYS BE LAST */
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log("Backend running on port", PORT);
