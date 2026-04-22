@@ -1,4 +1,5 @@
 const express = require("express");
+const cors = require("cors");   // ✅ ADDED
 const { Pool } = require("pg");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
@@ -9,8 +10,9 @@ const fetch = (...args) =>
 const app = express();
 
 /* ======================
-   MIDDLEWARE
+   GLOBAL MIDDLEWARE
 ====================== */
+app.use(cors());                 // ✅ ADDED (IMPORTANT)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -29,6 +31,7 @@ function authenticateToken(req, res, next) {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
   if (!token) return res.status(401).send("No token");
+
   jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
     if (err) return res.status(403).send("Invalid token");
     req.user = user;
@@ -54,20 +57,10 @@ app.get("/db-test", async (req, res) => {
 /* ======================
    REGISTER
 ====================== */
-app.get("/register", (req, res) => {
-  res.send(`
-    <h2>Register</h2>
-    <form method="POST" action="/register">
-      <input name="email" type="email" placeholder="Email" required /><br/><br/>
-      <input name="password" type="password" placeholder="Password" required /><br/><br/>
-      <button>Register</button>
-    </form>
-  `);
-});
-
 app.post("/register", async (req, res) => {
   const { email, password } = req.body;
   const hash = await bcrypt.hash(password, 10);
+
   try {
     await pool.query(
       "INSERT INTO users (email, password_hash) VALUES ($1,$2)",
@@ -82,29 +75,20 @@ app.post("/register", async (req, res) => {
 /* ======================
    LOGIN
 ====================== */
-app.get("/login", (req, res) => {
-  res.send(`
-    <h2>Login</h2>
-    <form method="POST" action="/login">
-      <input name="email" type="email" required /><br/><br/>
-      <input name="password" type="password" required /><br/><br/>
-      <button>Login</button>
-    </form>
-  `);
-});
-
 app.post("/login", async (req, res) => {
   const { email, password } = req.body;
+
   const result = await pool.query(
     "SELECT * FROM users WHERE email=$1",
     [email]
   );
-  if (result.rows.length === 0) return res.send("Invalid credentials");
+  if (result.rows.length === 0) return res.status(400).send("Invalid credentials");
+
   const valid = await bcrypt.compare(
     password,
     result.rows[0].password_hash
   );
-  if (!valid) return res.send("Invalid credentials");
+  if (!valid) return res.status(400).send("Invalid credentials");
 
   const token = jwt.sign(
     { userId: result.rows[0].id, email },
@@ -112,28 +96,22 @@ app.post("/login", async (req, res) => {
     { expiresIn: "1h" }
   );
 
-  res.send(`
-    <p>✅ Logged in</p>
-    <p>JWT Token (copy this):</p>
-    <textarea rows="4" cols="80">${token}</textarea>
-  `);
+  res.json({ token });
 });
 
 /* ======================
    DASHBOARD (PROTECTED)
 ====================== */
 app.get("/dashboard", authenticateToken, (req, res) => {
-  res.send(`
-    <h2>Dashboard</h2>
-    <p>Welcome ${req.user.email}</p>
-  `);
+  res.json({ message: `Welcome ${req.user.email}` });
 });
 
 /* ======================
-   FLIGHT SEARCH (SKYSCANNER)
+   FLIGHTS (SKYSCANNER)
 ====================== */
 app.get("/flights", async (req, res) => {
   const { from, to, date } = req.query;
+
   try {
     const response = await fetch(
       "https://skyscanner-api.p.rapidapi.com/v3/flights/live/search",
@@ -153,6 +131,7 @@ app.get("/flights", async (req, res) => {
         })
       }
     );
+
     res.json(await response.json());
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -170,11 +149,12 @@ app.post("/create-payment-intent", authenticateToken, async (req, res) => {
     currency: "usd",
     automatic_payment_methods: { enabled: true }
   });
+
   res.json({ clientSecret: intent.client_secret });
 });
 
 /* ======================
-   SERVER (LAST)
+   SERVER
 ====================== */
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
