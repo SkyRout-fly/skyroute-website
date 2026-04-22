@@ -1,6 +1,5 @@
 {
-  "name": "skyroute-frontend",
-  "version": "0.1.0",
+  "0.1.0",  "name": "skyroute-frontend",
   "private": true,
   "dependencies": {
     "react": "^18.2.0",
