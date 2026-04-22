@@ -1,18 +1,17 @@
 const express = require("express");
-const cors = require("cors");   // ✅ ADDED
+const cors = require("cors");
 const { Pool } = require("pg");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const Stripe = require("stripe");
-const fetch = (...args) =>
-  import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
 const app = express();
 
 /* ======================
    GLOBAL MIDDLEWARE
 ====================== */
-app.use(cors());                 // ✅ ADDED (IMPORTANT)
+app.use(cors());
+app.options("*", cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -82,13 +81,15 @@ app.post("/login", async (req, res) => {
     "SELECT * FROM users WHERE email=$1",
     [email]
   );
-  if (result.rows.length === 0) return res.status(400).send("Invalid credentials");
+  if (result.rows.length === 0)
+    return res.status(400).send("Invalid credentials");
 
   const valid = await bcrypt.compare(
     password,
     result.rows[0].password_hash
   );
-  if (!valid) return res.status(400).send("Invalid credentials");
+  if (!valid)
+    return res.status(400).send("Invalid credentials");
 
   const token = jwt.sign(
     { userId: result.rows[0].id, email },
@@ -108,6 +109,7 @@ app.get("/dashboard", authenticateToken, (req, res) => {
 
 /* ======================
    FLIGHTS (SKYSCANNER)
+   ✅ USES BUILT-IN FETCH
 ====================== */
 app.get("/flights", async (req, res) => {
   const { from, to, date } = req.query;
@@ -160,3 +162,4 @@ const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log("Backend running on port", PORT);
 });
+``
