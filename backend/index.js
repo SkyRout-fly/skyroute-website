@@ -2,9 +2,9 @@ const express = require("express");
 const { Pool } = require("pg");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const Stripe = require("stripe");
 const fetch = (...args) =>
   import("node-fetch").then(({ default: fetch }) => fetch(...args));
-const Stripe = require("stripe");
 
 const app = express();
 
@@ -23,14 +23,12 @@ const pool = new Pool({
 });
 
 /* ======================
-   AUTH MIDDLEWARE (JWT)
+   JWT AUTH MIDDLEWARE
 ====================== */
 function authenticateToken(req, res, next) {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
-
   if (!token) return res.status(401).send("No token");
-
   jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
     if (err) return res.status(403).send("Invalid token");
     req.user = user;
@@ -46,7 +44,7 @@ app.get("/", (req, res) => {
 });
 
 /* ======================
-   DATABASE TEST
+   DB TEST
 ====================== */
 app.get("/db-test", async (req, res) => {
   const result = await pool.query("SELECT NOW()");
@@ -54,14 +52,14 @@ app.get("/db-test", async (req, res) => {
 });
 
 /* ======================
-   AUTH – REGISTER
+   REGISTER
 ====================== */
 app.get("/register", (req, res) => {
   res.send(`
     <h2>Register</h2>
     <form method="POST" action="/register">
-      <input name="email" type="email" placeholder="Email" required/><br/><br/>
-      <input name="password" type="password" placeholder="Password" required/><br/><br/>
+      <input name="email" type="email" placeholder="Email" required /><br/><br/>
+      <input name="password" type="password" placeholder="Password" required /><br/><br/>
       <button>Register</button>
     </form>
   `);
@@ -70,7 +68,6 @@ app.get("/register", (req, res) => {
 app.post("/register", async (req, res) => {
   const { email, password } = req.body;
   const hash = await bcrypt.hash(password, 10);
-
   try {
     await pool.query(
       "INSERT INTO users (email, password_hash) VALUES ($1,$2)",
@@ -78,19 +75,19 @@ app.post("/register", async (req, res) => {
     );
     res.send("✅ Registered successfully");
   } catch {
-    res.status(400).send("User exists");
+    res.status(400).send("User already exists");
   }
 });
 
 /* ======================
-   AUTH – LOGIN
+   LOGIN
 ====================== */
 app.get("/login", (req, res) => {
   res.send(`
     <h2>Login</h2>
     <form method="POST" action="/login">
-      <input name="email" type="email" required/><br/><br/>
-      <input name="password" type="password" required/><br/><br/>
+      <input name="email" type="email" required /><br/><br/>
+      <input name="password" type="password" required /><br/><br/>
       <button>Login</button>
     </form>
   `);
@@ -98,22 +95,21 @@ app.get("/login", (req, res) => {
 
 app.post("/login", async (req, res) => {
   const { email, password } = req.body;
-
   const result = await pool.query(
     "SELECT * FROM users WHERE email=$1",
     [email]
   );
-  if (result.rows.length === 0) return res.send("Invalid");
-
+  if (result.rows.length === 0) return res.send("Invalid credentials");
   const valid = await bcrypt.compare(
     password,
     result.rows[0].password_hash
   );
-  if (!valid) return res.send("Invalid");
+  if (!valid) return res.send("Invalid credentials");
 
   const token = jwt.sign(
     { userId: result.rows[0].id, email },
-    process.env.JWT_SECRET
+    process.env.JWT_SECRET,
+    { expiresIn: "1h" }
   );
 
   res.send(`
@@ -134,47 +130,46 @@ app.get("/dashboard", authenticateToken, (req, res) => {
 });
 
 /* ======================
-   FLIGHT SEARCH (AMADEUS)
+   FLIGHT SEARCH (SKYSCANNER)
 ====================== */
-async function getAmadeusToken() {
-  const res = await fetch(
-    "https://test.api.amadeus.com/v1/security/oauth2/token",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body:
-        `grant_type=client_credentials&client_id=${process.env.AMADEUS_CLIENT_ID}&client_secret=${process.env.AMADEUS_CLIENT_SECRET}`
-    }
-  );
-  const data = await res.json();
-  return data.access_token;
-}
-
 app.get("/flights", async (req, res) => {
   const { from, to, date } = req.query;
-  const token = await getAmadeusToken();
-
-  const response = await fetch(
-    `https://test.api.amadeus.com/v2/shopping/flight-offers?originLocationCode=${from}&destinationLocationCode=${to}&departureDate=${date}&adults=1`,
-    {
-      headers: { Authorization: `Bearer ${token}` }
-    }
-  );
-
-  res.json(await response.json());
+  try {
+    const response = await fetch(
+      "https://skyscanner-api.p.rapidapi.com/v3/flights/live/search",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-RapidAPI-Key": process.env.SKYSCANNER_API_KEY,
+          "X-RapidAPI-Host": "skyscanner-api.p.rapidapi.com"
+        },
+        body: JSON.stringify({
+          originPlaceId: { iata: from },
+          destinationPlaceId: { iata: to },
+          departureDate: date,
+          adults: 1,
+          cabinClass: "ECONOMY"
+        })
+      }
+    );
+    res.json(await response.json());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 /* ======================
-   BOOKINGS + PAYMENTS (STRIPE)
+   STRIPE PAYMENT
 ====================== */
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 app.post("/create-payment-intent", authenticateToken, async (req, res) => {
   const intent = await stripe.paymentIntents.create({
     amount: 5000,
-    currency: "usd"
+    currency: "usd",
+    automatic_payment_methods: { enabled: true }
   });
-
   res.json({ clientSecret: intent.client_secret });
 });
 
