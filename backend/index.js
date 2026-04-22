@@ -5,6 +5,19 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const Stripe = require("stripe");
 
+/* ======================
+   HARD ERROR LOGGING ✅ ADDED
+====================== */
+process.on("uncaughtException", err => {
+  console.error("UNCAUGHT EXCEPTION:", err);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", err => {
+  console.error("UNHANDLED REJECTION:", err);
+  process.exit(1);
+});
+
 const app = express();
 
 /* ======================
@@ -17,11 +30,26 @@ app.use(express.urlencoded({ extended: true }));
 
 /* ======================
    DATABASE (SUPABASE)
+   ✅ Hardened Pool
 ====================== */
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  ssl: { rejectUnauthorized: false },
+  connectionTimeoutMillis: 10000,
+  idleTimeoutMillis: 30000,
+  max: 5
 });
+
+/* ✅ TEST DB ON STARTUP (CRITICAL) */
+(async () => {
+  try {
+    await pool.query("SELECT 1");
+    console.log("✅ Database connected successfully");
+  } catch (err) {
+    console.error("❌ Database connection failed:", err);
+    process.exit(1);
+  }
+})();
 
 /* ======================
    JWT AUTH MIDDLEWARE
@@ -109,7 +137,7 @@ app.get("/dashboard", authenticateToken, (req, res) => {
 
 /* ======================
    FLIGHTS (SKYSCANNER)
-   ✅ USES BUILT-IN FETCH
+   ✅ Uses built-in fetch (Node 22)
 ====================== */
 app.get("/flights", async (req, res) => {
   const { from, to, date } = req.query;
@@ -136,6 +164,7 @@ app.get("/flights", async (req, res) => {
 
     res.json(await response.json());
   } catch (err) {
+    console.error("Flights error:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -160,6 +189,5 @@ app.post("/create-payment-intent", authenticateToken, async (req, res) => {
 ====================== */
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-  console.log("Backend running on port", PORT);
+  console.log("✅ Backend running on port", PORT);
 });
-``
